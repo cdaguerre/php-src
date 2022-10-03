@@ -380,56 +380,74 @@ int fpm_status_handle_request(void) /* {{{ */
 
 			/* OpenMetrics */
 		} else if (fpm_php_get_string_from_table(_GET_str, "openmetrics")) {
-			sapi_add_header_ex(ZEND_STRL("Content-Type: application/openmetrics-text; version=1.0.0; charset=utf-8"), 1, 1);
+			sapi_add_header_ex(ZEND_STRL("Content-Type: text/plain"), 1, 1);
 			time_format = "%s";
 
 			short_syntax =
-				"# HELP phpfpm_up Could pool %s using a %s PM on PHP-FPM be reached?\n"
+				"# HELP phpfpm_up Could pool be reached?\n"
 				"# TYPE phpfpm_up gauge\n"
-				"phpfpm_up 1\n"
+				"phpfpm_up{pool=\"%s\",pm=\"%s\"} 1\n"
 				"# HELP phpfpm_start_since The number of seconds since FPM has started.\n"
 				"# TYPE phpfpm_start_since counter\n"
-				"phpfpm_start_since %lu\n"
+				"phpfpm_start_since{pool=\"%s\"} %lu\n"
 				"# HELP phpfpm_accepted_connections The number of requests accepted by the pool.\n"
 				"# TYPE phpfpm_accepted_connections counter\n"
-				"phpfpm_accepted_connections %lu\n"
+				"phpfpm_accepted_connections{pool=\"%s\"} %lu\n"
 				"# HELP phpfpm_listen_queue The number of requests in the queue of pending connections.\n"
 				"# TYPE phpfpm_listen_queue gauge\n"
-				"phpfpm_listen_queue %d\n"
+				"phpfpm_listen_queue{pool=\"%s\"} %d\n"
 				"# HELP phpfpm_max_listen_queue The maximum number of requests in the queue of pending connections since FPM has started.\n"
 				"# TYPE phpfpm_max_listen_queue counter\n"
-				"phpfpm_max_listen_queue %d\n"
+				"phpfpm_max_listen_queue{pool=\"%s\"} %d\n"
 				"# TYPE phpfpm_listen_queue_length gauge\n"
 				"# HELP phpfpm_listen_queue_length The size of the socket queue of pending connections.\n"
-				"phpfpm_listen_queue_length %u\n"
+				"phpfpm_listen_queue_length{pool=\"%s\"} %u\n"
 				"# HELP phpfpm_idle_processes The number of idle processes.\n"
 				"# TYPE phpfpm_idle_processes gauge\n"
-				"phpfpm_idle_processes %d\n"
+				"phpfpm_idle_processes{pool=\"%s\"} %d\n"
 				"# HELP phpfpm_active_processes The number of active processes.\n"
 				"# TYPE phpfpm_active_processes gauge\n"
-				"phpfpm_active_processes %d\n"
+				"phpfpm_active_processes{pool=\"%s\"} %d\n"
 				"# HELP phpfpm_total_processes The number of idle + active processes.\n"
 				"# TYPE phpfpm_total_processes gauge\n"
-				"phpfpm_total_processes %d\n"
+				"phpfpm_total_processes{pool=\"%s\"} %d\n"
 				"# HELP phpfpm_max_active_processes The maximum number of active processes since FPM has started.\n"
 				"# TYPE phpfpm_max_active_processes counter\n"
-				"phpfpm_max_active_processes %d\n"
+				"phpfpm_max_active_processes{pool=\"%s\"} %d\n"
 				"# HELP phpfpm_max_children_reached The number of times, the process limit has been reached, when pm tries to start more children (works only for pm 'dynamic' and 'ondemand').\n"
 				"# TYPE phpfpm_max_children_reached counter\n"
-				"phpfpm_max_children_reached %u\n"
+				"phpfpm_max_children_reached{pool=\"%s\"} %u\n"
 				"# HELP phpfpm_slow_requests The number of requests that exceeded your 'request_slowlog_timeout' value.\n"
 				"# TYPE phpfpm_slow_requests counter\n"
-				"phpfpm_slow_requests %lu\n"
-				"# EOF\n";
+				"phpfpm_slow_requests{pool=\"%s\"} %lu\n";
 
 			has_start_time = 0;
 			if (!full) {
-				short_post = "";
+				short_post = "# EOF\n";
 			} else {
 				full_separator = "";
-				full_pre = "";
-				full_syntax = "";
-				full_post = "";
+				full_pre =
+					"# HELP phpfpm_process_start_since_seconds_total The number of seconds since the process started.\n"
+					"# TYPE phpfpm_process_start_since_seconds_total counter\n"
+					"# HELP phpfpm_process_requests_total The total number of requests served.\n"
+					"# TYPE phpfpm_process_requests_total counter\n"
+					"# HELP phpfpm_process_request_seconds Time in seconds serving the current or last request.\n"
+					"# TYPE phpfpm_process_request_seconds counter\n"
+					"# HELP phpfpm_process_request_cpu The percentage of cpu of the last request. This will be 0 if the process is not Idle because the calculation is done when the request processing is complete.\n"
+					"# TYPE phpfpm_process_request_cpu gauge\n"
+					"# HELP phpfpm_process_request_memory_bytes The maximum amount of memory consumed by the last request. This will be 0 if the process is not Idle because the calculation is done when the request processing is complete.\n"
+					"# TYPE phpfpm_process_request_memory_bytes gauge\n"
+					"# HELP phpfpm_process_request_content_length The maximum amount of memory consumed by the last request. This will be 0 if the process is not Idle because the calculation is done when the request processing is complete.\n"
+					"# TYPE phpfpm_process_request_content_length gauge\n";
+				full_syntax =
+					"phpfpm_process_running{pool=\"%s\",pid=\"%d\"} %d\n"
+					"phpfpm_process_start_since_seconds_total{pool=\"%s\",pid=\"%d\"} %lu\n"
+					"phpfpm_process_requests_total{pool=\"%s\",pid=\"%d\"} %lu\n"
+					"phpfpm_process_request_seconds{pool=\"%s\",pid=\"%d\"} %.6f\n"
+					"phpfpm_process_request_cpu{pool=\"%s\",pid=\"%d\",method=\"%s\"} %.2f\n"
+					"phpfpm_process_request_memory_bytes{pool=\"%s\",pid=\"%d\",method=\"%s\"} %zu\n"
+					"phpfpm_process_request_content_length_bytes{pool=\"%s\",pid=\"%d\",method=\"%s\"} %zu\n";
+				full_post = "# EOF\n";
 			}
 
 		/* TEXT */
@@ -492,7 +510,34 @@ int fpm_status_handle_request(void) /* {{{ */
 					scoreboard_p->max_children_reached,
 					scoreboard_p->slow_rq);
 		} else {
-			spprintf(&buffer, 0, short_syntax,
+			if (fpm_php_get_string_from_table(_GET_str, "openmetrics")) {
+				spprintf(&buffer, 0, short_syntax,
+					scoreboard_p->pool,
+					PM2STR(scoreboard_p->pm),
+					scoreboard_p->pool,
+					(unsigned long) (now_epoch - scoreboard_p->start_epoch),
+					scoreboard_p->pool,
+					scoreboard_p->requests,
+					scoreboard_p->pool,
+					scoreboard_p->lq,
+					scoreboard_p->pool,
+					scoreboard_p->lq_max,
+					scoreboard_p->pool,
+					scoreboard_p->lq_len,
+					scoreboard_p->pool,
+					scoreboard_p->idle,
+					scoreboard_p->pool,
+					scoreboard_p->active,
+					scoreboard_p->pool,
+					scoreboard_p->idle + scoreboard_p->active,
+					scoreboard_p->pool,
+					scoreboard_p->active_max,
+					scoreboard_p->pool,
+					scoreboard_p->max_children_reached,
+					scoreboard_p->pool,
+					scoreboard_p->slow_rq);
+			} else {
+				spprintf(&buffer, 0, short_syntax,
 					scoreboard_p->pool,
 					PM2STR(scoreboard_p->pm),
 					(unsigned long) (now_epoch - scoreboard_p->start_epoch),
@@ -506,6 +551,7 @@ int fpm_status_handle_request(void) /* {{{ */
 					scoreboard_p->active_max,
 					scoreboard_p->max_children_reached,
 					scoreboard_p->slow_rq);
+			}
 		}
 
 		PUTS(buffer);
@@ -519,7 +565,7 @@ int fpm_status_handle_request(void) /* {{{ */
 		/* no need to test the var 'full' */
 		if (full_syntax) {
 			unsigned int i;
-			int first;
+			int first, running;
 			zend_string *tmp_query_string;
 			char *query_string;
 			struct timeval duration, now;
@@ -564,28 +610,60 @@ int fpm_status_handle_request(void) /* {{{ */
 					cpu = (proc->last_request_cpu.tms_utime + proc->last_request_cpu.tms_stime + proc->last_request_cpu.tms_cutime + proc->last_request_cpu.tms_cstime) / fpm_scoreboard_get_tick() / (proc->cpu_duration.tv_sec + proc->cpu_duration.tv_usec / 1000000.) * 100.;
 				}
 
+				running = 1;
 				if (proc->request_stage == FPM_REQUEST_ACCEPTING) {
 					duration = proc->duration;
 				} else {
+					running = 0;
 					timersub(&now, &proc->accepted, &duration);
 				}
 				strftime(time_buffer, sizeof(time_buffer) - 1, time_format, localtime(&proc->start_epoch));
-				spprintf(&buffer, 0, full_syntax,
-					(int) proc->pid,
-					fpm_request_get_stage_name(proc->request_stage),
-					time_buffer,
-					(unsigned long) (now_epoch - proc->start_epoch),
-					proc->requests,
-					duration.tv_sec * 1000000UL + duration.tv_usec,
-					proc->request_method[0] != '\0' ? proc->request_method : "-",
-					proc->request_uri[0] != '\0' ? proc->request_uri : "-",
-					query_string ? "?" : "",
-					query_string ? query_string : "",
-					proc->content_length,
-					proc->auth_user[0] != '\0' ? proc->auth_user : "-",
-					proc->script_filename[0] != '\0' ? proc->script_filename : "-",
-					proc->request_stage == FPM_REQUEST_ACCEPTING ? cpu : 0.,
-					proc->request_stage == FPM_REQUEST_ACCEPTING ? proc->memory : 0);
+
+				if (fpm_php_get_string_from_table(_GET_str, "openmetrics")) {
+					spprintf(&buffer, 0, full_syntax,
+						scoreboard_p->pool,
+						(int) proc->pid,
+						running,
+						scoreboard_p->pool,
+						(int) proc->pid,
+						(unsigned long) (now_epoch - proc->start_epoch),
+						scoreboard_p->pool,
+						(int) proc->pid,
+						proc->requests,
+						scoreboard_p->pool,
+						(int) proc->pid,
+						(duration.tv_sec * 1000000UL + duration.tv_usec) / 1000000.,
+						scoreboard_p->pool,
+						(int) proc->pid,
+						proc->request_method[0] != '\0' ? proc->request_method : "-",
+						proc->request_stage == FPM_REQUEST_ACCEPTING ? cpu : 0.,
+						scoreboard_p->pool,
+						(int) proc->pid,
+						proc->request_method[0] != '\0' ? proc->request_method : "-",
+						proc->request_stage == FPM_REQUEST_ACCEPTING ? proc->memory : 0,
+						scoreboard_p->pool,
+						(int) proc->pid,
+						proc->request_method[0] != '\0' ? proc->request_method : "-",
+						proc->content_length);
+				} else {
+					spprintf(&buffer, 0, full_syntax,
+						(int) proc->pid,
+						fpm_request_get_stage_name(proc->request_stage),
+						time_buffer,
+						(unsigned long) (now_epoch - proc->start_epoch),
+						proc->requests,
+						duration.tv_sec * 1000000UL + duration.tv_usec,
+						proc->request_method[0] != '\0' ? proc->request_method : "-",
+						proc->request_uri[0] != '\0' ? proc->request_uri : "-",
+						query_string ? "?" : "",
+						query_string ? query_string : "",
+						proc->content_length,
+						proc->auth_user[0] != '\0' ? proc->auth_user : "-",
+						proc->script_filename[0] != '\0' ? proc->script_filename : "-",
+						proc->request_stage == FPM_REQUEST_ACCEPTING ? cpu : 0.,
+						proc->request_stage == FPM_REQUEST_ACCEPTING ? proc->memory : 0);
+				}
+
 				PUTS(buffer);
 				efree(buffer);
 
